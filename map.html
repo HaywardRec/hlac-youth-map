@@ -279,8 +279,27 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="map_data.js"></script>
+<script src="events.js"></script>
 <script>
+// events.js is rebuilt daily from the haywardrec.org calendar by build_events.py
+// (GitHub Action). If it's missing, the map still works with an empty Events layer.
+MAP_DATA.events = (typeof EVENTS_DATA !== 'undefined') ? EVENTS_DATA : { type: 'FeatureCollection', features: [] };
+
 const LAYER_DEFS = [
+  {
+    key: 'events',
+    label: 'Upcoming Events',
+    color: '#db2777',
+    colorHex: '#db2777',
+    defaultOn: true,
+    note: () => MAP_DATA.events.updated
+      ? `From the HARD calendar · updated ${MAP_DATA.events.updated}`
+      : 'From the HARD calendar',
+    filters: [
+      { field: 'age_group', label: 'Ages' },
+      { field: 'month', label: 'Month' },
+    ],
+  },
   {
     key: 'hard',
     label: 'HARD Facilities',
@@ -374,6 +393,12 @@ if (MAP_DATA.boundary) {
 
 // mini clip-art icons per facility subcategory, shown inside the marker pin
 const ICONS = {
+  events: {
+    'Young Kids': '🧸',
+    'Teens & Youth': '🎧',
+    'Adults & Seniors': '☕',
+    'All Ages': '🎉',
+  },
   hard: {
     'Center': '🏢',
     'Center - Senior': '🧓',
@@ -416,7 +441,7 @@ const ICONS = {
     'Hiking Trailhead': '🥾',
   },
 };
-const DEFAULT_ICON = { hard: '📍', coh: '📍', husd: '🏫', business: '📍', landmark: '📍' };
+const DEFAULT_ICON = { events: '📅', hard: '📍', coh: '📍', husd: '🏫', business: '📍', landmark: '📍' };
 
 // CoH's "subcategory" is a program label (e.g. "Youth"), not a facility type, so it
 // mis-icons a few sites (e.g. a swim club tagged "Youth" got the person icon). Override by name.
@@ -428,7 +453,7 @@ const ICON_NAME_OVERRIDES = {
 function iconFor(layerKey, feature) {
   const name = feature.properties.name;
   if (ICON_NAME_OVERRIDES[name]) return ICON_NAME_OVERRIDES[name];
-  const sub = feature.properties.subcategory;
+  const sub = layerKey === 'events' ? feature.properties.age_group : feature.properties.subcategory;
   return (ICONS[layerKey] && ICONS[layerKey][sub]) || DEFAULT_ICON[layerKey] || '📍';
 }
 
@@ -453,6 +478,7 @@ function fieldValues(features, field) {
 }
 
 const SRC_TAGS = {
+  Event: { color: '#db2777', label: 'Event' },
   HARD: { color: '#2f7d4f', label: 'HARD' },
   CoH: { color: '#2563eb', label: 'City of Hayward' },
   HUSD: { color: '#d97706', label: 'HUSD' },
@@ -460,7 +486,24 @@ const SRC_TAGS = {
   Landmark: { color: '#dc2626', label: 'Landmark' },
 };
 
+// event text is scraped from the calendar, so escape it before it goes into the popup
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function eventPopupHtml(raw) {
+  const props = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, esc(v)]));
+  let html = `<div class="popup">`;
+  html += `<span class="src-tag" style="background:${SRC_TAGS.Event.color}">Event · ${props.age_group}</span>`;
+  html += `<h3>${props.name}</h3>`;
+  html += `<div class="field"><b>When</b>${props.when}${props.time ? ' · ' + props.time : ''}</div>`;
+  html += `<div class="field"><b>Where</b>${props.venue}${props.address ? `<br><span class="addr">${props.address}</span>` : ''}</div>`;
+  if (props.description) html += `<div class="field">${props.description}</div>`;
+  html += `<a class="site-link" href="${props.website}" target="_blank" rel="noopener">Event details &amp; sign up →</a>`;
+  html += `</div>`;
+  return html;
+}
+
 function popupHtml(props) {
+  if (props.source === 'Event') return eventPopupHtml(props);
   const tag = SRC_TAGS[props.source] || SRC_TAGS.HARD;
   let html = `<div class="popup">`;
   html += `<span class="src-tag" style="background:${tag.color}">${tag.label}</span>`;
@@ -524,7 +567,7 @@ function buildLayer(def) {
 LAYER_DEFS.forEach(buildLayer);
 
 // fields searched beyond name/address, so e.g. "tennis" finds facilities with Tennis Courts listed
-const SEARCH_FIELDS = ['name', 'address', 'amenities', 'reservable_rooms', 'reservable_other', 'notes', 'subcategory', 'category'];
+const SEARCH_FIELDS = ['name', 'address', 'venue', 'description', 'age_group', 'amenities', 'reservable_rooms', 'reservable_other', 'notes', 'subcategory', 'category'];
 
 function searchHaystack(props) {
   return SEARCH_FIELDS.map(f => props[f] || '').join(' ').toLowerCase();
@@ -568,7 +611,7 @@ function refreshMap() {
     if (!map.hasLayer(group)) map.addLayer(group);
   });
 
-  document.getElementById('result-count').textContent = `${shown} facilit${shown===1?'y':'ies'} shown`;
+  document.getElementById('result-count').textContent = `${shown} result${shown===1?'':'s'} shown`;
 }
 
 function renderSidebar() {
@@ -594,6 +637,22 @@ function renderSidebar() {
 
     const body = document.createElement('div');
     body.className = 'layer-body';
+
+    if (def.note) {
+      const note = document.createElement('div');
+      note.className = 'filter-group-label';
+      note.style.textTransform = 'none';
+      note.style.letterSpacing = '0';
+      note.textContent = def.note();
+      body.appendChild(note);
+    }
+    if (total === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'filter-group-label';
+      empty.style.textTransform = 'none';
+      empty.textContent = 'No upcoming events posted right now.';
+      body.appendChild(empty);
+    }
 
     def.filters.forEach(fdef => {
       const group = document.createElement('div');
