@@ -489,8 +489,14 @@ def main():
     groups = OrderedDict()
     unresolved, n_sessions = {}, 0
     memo = {}
+    parsed_any = False
     for label, url in guides:
-        classes, directory = parse_guide(fetch(url, binary=True), label)
+        try:
+            classes, directory = parse_guide(fetch(url, binary=True), label)
+        except Exception as err:  # one unreadable guide shouldn't block the others
+            print(f"  ! couldn't read the {label} guide ({url}): {err}")
+            continue
+        parsed_any = True
         print(f"{label}: {len(classes)} classes, {sum(len(c['sessions']) for c in classes)} sessions, "
               f"{len(directory)} directory codes")
         for cls in classes:
@@ -510,6 +516,9 @@ def main():
                     g = groups[key] = {"cls": cls, "interest": interest, "venue": venue,
                                        "coords": coords, "sessions": []}
                 g["sessions"].append(s)
+
+    if not parsed_any:
+        raise SystemExit("Couldn't read any guide PDF -- leaving classes.js unchanged.")
 
     features = []
     for g in groups.values():

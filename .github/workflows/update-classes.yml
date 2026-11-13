@@ -22,7 +22,8 @@ jobs:
           python-version: "3.12"
 
       - name: Install pypdf
-        run: pip install pypdf
+        # [crypto] = AES support (some guide PDFs are encrypted); fonttools = cleaner text from embedded fonts
+        run: pip install "pypdf[crypto]" fonttools
 
       - name: Build classes.js
         env:
