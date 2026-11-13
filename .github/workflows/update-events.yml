@@ -34,5 +34,6 @@ jobs:
             echo "No changes."
           else
             git commit -m "Update events from HARD calendar"
+            git pull --rebase
             git push
           fi

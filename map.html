@@ -177,6 +177,11 @@
   .popup .addr{ color:var(--muted); margin-bottom:6px; }
   .popup .field{ margin-top:6px; }
   .popup .field b{ display:block; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); font-weight:600; margin-bottom:1px; }
+  .popup .sessions{ max-height:150px; overflow-y:auto; }
+  .popup .session{ font-size:12px; padding:3px 0; border-bottom:1px solid #eef0f2; }
+  .popup .session:last-child{ border-bottom:0; }
+  .popup .session b{ display:inline; font-size:12px; text-transform:none; letter-spacing:0; color:inherit; }
+  .popup .session .course{ color:var(--muted); font-size:11px; }
   .popup a.site-link{
     display:inline-block;
     margin-top:8px;
@@ -280,12 +285,49 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="map_data.js"></script>
 <script src="events.js"></script>
+<script src="classes.js"></script>
 <script>
 // events.js is rebuilt daily from the haywardrec.org calendar by build_events.py
 // (GitHub Action). If it's missing, the map still works with an empty Events layer.
 MAP_DATA.events = (typeof EVENTS_DATA !== 'undefined') ? EVENTS_DATA : { type: 'FeatureCollection', features: [] };
 
+// classes.js is rebuilt monthly from the current Recreation Guide PDFs by build_classes.py.
+// Between rebuilds, drop sessions (and whole classes) whose dates have already passed.
+const TODAY = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in the viewer's time zone
+MAP_DATA.classes = (() => {
+  const src = (typeof CLASSES_DATA !== 'undefined') ? CLASSES_DATA : { features: [] };
+  const features = [];
+  src.features.forEach(f => {
+    const sessions = f.properties.sessions.filter(s => !s.end || s.end >= TODAY);
+    if (!sessions.length) return;
+    const starts = sessions.map(s => s.start).filter(Boolean).sort();
+    const first = starts[0];
+    const starts_label = !first || first <= TODAY
+      ? 'In progress'
+      : new Date(first + 'T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    features.push({ ...f, properties: { ...f.properties, sessions, starts: starts_label } });
+  });
+  return { type: 'FeatureCollection', guides: src.guides || [], features };
+})();
+// events are dropped the day after they happen, too
+MAP_DATA.events.features = MAP_DATA.events.features.filter(f => !f.properties.date || f.properties.date >= TODAY);
+
 const LAYER_DEFS = [
+  {
+    key: 'classes',
+    label: 'HARD Classes',
+    color: '#0d9488',
+    colorHex: '#0d9488',
+    defaultOn: true,
+    note: () => MAP_DATA.classes.guides.length
+      ? `From the ${MAP_DATA.classes.guides.join(' & ')} Recreation Guide${MAP_DATA.classes.guides.length > 1 ? 's' : ''} · past classes hidden`
+      : 'From the HARD Recreation Guide',
+    filters: [
+      { field: 'interest', label: 'Interest' },
+      { field: 'age_groups', label: 'Ages' },
+      { field: 'starts', label: 'Starts' },
+    ],
+  },
   {
     key: 'events',
     label: 'Upcoming Events',
@@ -393,6 +435,24 @@ if (MAP_DATA.boundary) {
 
 // mini clip-art icons per facility subcategory, shown inside the marker pin
 const ICONS = {
+  classes: {
+    'Tech, Coding & STEM': '🤖',
+    'Music & Dance': '🎵',
+    'Arts & Crafts': '🎨',
+    'Sports': '🏀',
+    'Martial Arts': '🥋',
+    'Fitness & Wellness': '🧘',
+    'Swimming': '🏊',
+    'Nature & Outdoors': '🌿',
+    'Cooking & Baking': '🧁',
+    'Theater & Performing': '🎭',
+    'Games & Gaming': '🎮',
+    'Languages': '💬',
+    'Preschool': '🧸',
+    'Special Events': '🎉',
+    'Volunteering': '🤝',
+    'Adaptive & Inclusive': '♿',
+  },
   events: {
     'Young Kids': '🧸',
     'Teens & Youth': '🎧',
@@ -441,7 +501,7 @@ const ICONS = {
     'Hiking Trailhead': '🥾',
   },
 };
-const DEFAULT_ICON = { events: '📅', hard: '📍', coh: '📍', husd: '🏫', business: '📍', landmark: '📍' };
+const DEFAULT_ICON = { classes: '📘', events: '📅', hard: '📍', coh: '📍', husd: '🏫', business: '📍', landmark: '📍' };
 
 // CoH's "subcategory" is a program label (e.g. "Youth"), not a facility type, so it
 // mis-icons a few sites (e.g. a swim club tagged "Youth" got the person icon). Override by name.
@@ -453,7 +513,9 @@ const ICON_NAME_OVERRIDES = {
 function iconFor(layerKey, feature) {
   const name = feature.properties.name;
   if (ICON_NAME_OVERRIDES[name]) return ICON_NAME_OVERRIDES[name];
-  const sub = layerKey === 'events' ? feature.properties.age_group : feature.properties.subcategory;
+  const sub = layerKey === 'events' ? feature.properties.age_group
+    : layerKey === 'classes' ? feature.properties.interest
+    : feature.properties.subcategory;
   return (ICONS[layerKey] && ICONS[layerKey][sub]) || DEFAULT_ICON[layerKey] || '📍';
 }
 
@@ -468,16 +530,31 @@ LAYER_DEFS.forEach(def => {
 const clusterGroups = {};
 const allMarkersByLayer = {}; // key -> [{feature, marker}]
 
+// a property can be a single value or a list (e.g. a class open to both Kids and Teens)
+const valuesOf = (props, field) => {
+  const v = props[field];
+  if (Array.isArray(v)) return v.length ? v : ['Unspecified'];
+  return [v || 'Unspecified'];
+};
+
+// fields whose chips keep a fixed, meaningful order instead of most-common-first
+const FIXED_ORDER = {
+  age_groups: ['Young Kids (0–5)', 'Kids (6–12)', 'Teens (13–17)', 'Adults (18+)', 'Seniors (50+)'],
+  age_group: ['Young Kids', 'Teens & Youth', 'Adults & Seniors', 'All Ages'],
+};
+const monthOrder = label => label === 'In progress' ? -1 : (Date.parse('1 ' + label) || 9e15);
+
 function fieldValues(features, field) {
   const counts = new Map();
-  features.forEach(f => {
-    const v = f.properties[field] || 'Unspecified';
-    counts.set(v, (counts.get(v) || 0) + 1);
-  });
-  return [...counts.entries()].sort((a,b) => b[1]-a[1]);
+  features.forEach(f => valuesOf(f.properties, field).forEach(v => counts.set(v, (counts.get(v) || 0) + 1)));
+  const entries = [...counts.entries()];
+  if (FIXED_ORDER[field]) return entries.sort((a, b) => FIXED_ORDER[field].indexOf(a[0]) - FIXED_ORDER[field].indexOf(b[0]));
+  if (field === 'month' || field === 'starts') return entries.sort((a, b) => monthOrder(a[0]) - monthOrder(b[0]));
+  return entries.sort((a, b) => b[1] - a[1]);
 }
 
 const SRC_TAGS = {
+  Class: { color: '#0d9488', label: 'HARD Class' },
   Event: { color: '#db2777', label: 'Event' },
   HARD: { color: '#2f7d4f', label: 'HARD' },
   CoH: { color: '#2563eb', label: 'City of Hayward' },
@@ -502,7 +579,38 @@ function eventPopupHtml(raw) {
   return html;
 }
 
+const DAY_NAMES = { M: 'Mon', T: 'Tue', W: 'Wed', Th: 'Thu', F: 'Fri', Sa: 'Sat', Su: 'Sun' };
+const prettyDays = d => String(d || '').replace(/Th|Sa|Su|M|T|W|F/g, m => DAY_NAMES[m]);
+
+function classPopupHtml(p) {
+  const MAX = 6;
+  let html = `<div class="popup">`;
+  html += `<span class="src-tag" style="background:${SRC_TAGS.Class.color}">HARD Class · ${esc(p.interest)}</span>`;
+  html += `<h3>${esc(p.name)}</h3>`;
+  html += `<div class="addr">${esc(p.venue)}</div>`;
+  if (p.ages) html += `<div class="field"><b>Ages</b>${esc(p.ages)}</div>`;
+  html += `<div class="field"><b>Dates</b><div class="sessions">`;
+  p.sessions.slice(0, MAX).forEach(s => {
+    const bits = [
+      `<b>${esc(s.dates)}</b>`,
+      [prettyDays(s.days), esc(s.time)].filter(Boolean).join(' '),
+      s.meetings ? `${s.meetings} class${s.meetings === 1 ? '' : 'es'}` : '',
+      esc(s.price),
+    ].filter(Boolean);
+    const ages = p.sessions.some(x => x.ages !== p.sessions[0].ages) && s.ages ? ` · ${esc(s.ages)}` : '';
+    html += `<div class="session">${bits.join(' · ')}${ages} <span class="course">#${esc(s.course)}</span></div>`;
+  });
+  if (p.sessions.length > MAX) html += `<div class="session">+ ${p.sessions.length - MAX} more session${p.sessions.length - MAX === 1 ? '' : 's'}</div>`;
+  html += `</div></div>`;
+  if (p.description) html += `<div class="field">${esc(p.description)}</div>`;
+  html += `<a class="site-link" href="${esc(p.website)}" target="_blank" rel="noopener">Find &amp; register on ActiveNet →</a>`;
+  html += `<div class="field" style="color:var(--muted);font-size:11px;margin-top:6px;">${esc(p.guide)} Recreation Guide</div>`;
+  html += `</div>`;
+  return html;
+}
+
 function popupHtml(props) {
+  if (props.source === 'Class') return classPopupHtml(props);
   if (props.source === 'Event') return eventPopupHtml(props);
   const tag = SRC_TAGS[props.source] || SRC_TAGS.HARD;
   let html = `<div class="popup">`;
@@ -568,7 +676,7 @@ function buildLayer(def) {
 LAYER_DEFS.forEach(buildLayer);
 
 // fields searched beyond name/address, so e.g. "tennis" finds facilities with Tennis Courts listed
-const SEARCH_FIELDS = ['name', 'address', 'venue', 'description', 'age_group', 'amenities', 'reservable_rooms', 'reservable_other', 'notes', 'subcategory', 'category'];
+const SEARCH_FIELDS = ['name', 'address', 'venue', 'description', 'age_group', 'interest', 'section', 'amenities', 'reservable_rooms', 'reservable_other', 'notes', 'subcategory', 'category'];
 
 function searchHaystack(props) {
   return SEARCH_FIELDS.map(f => props[f] || '').join(' ').toLowerCase();
@@ -578,8 +686,7 @@ function matchesFilters(def, feature) {
   const f = state[def.key].filters;
   for (const field in f) {
     if (f[field].size === 0) continue; // no filter active on this field = allow all
-    const v = feature.properties[field] || 'Unspecified';
-    if (!f[field].has(v)) return false;
+    if (!valuesOf(feature.properties, field).some(v => f[field].has(v))) return false;
   }
   return true;
 }
