@@ -378,7 +378,7 @@ const LAYER_DEFS = [
     label: 'Local Businesses',
     color: 'var(--biz)',
     colorHex: '#9333ea',
-    defaultOn: true,
+    defaultOn: false,
     filters: [
       { field: 'category', label: 'Type' },
     ],
@@ -388,7 +388,7 @@ const LAYER_DEFS = [
     label: 'Named Landmarks',
     color: 'var(--landmark)',
     colorHex: '#dc2626',
-    defaultOn: true,
+    defaultOn: false,
     filters: [
       { field: 'category', label: 'Type' },
     ],
@@ -804,7 +804,8 @@ function renderSidebar() {
       refreshMap();
     });
 
-    if (!def.defaultOn) block.classList.add('collapsed');
+    // every section starts collapsed; click its title to see the filters
+    block.classList.add('collapsed');
   });
 }
 
