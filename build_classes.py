@@ -342,6 +342,7 @@ def split_title_description(buf):
     title = re.sub(r"\s+", " ", title).strip(" :-")
     desc = " ".join(ln.strip() for ln in lines[first_desc:])
     desc = re.sub(r"\s+([.,!?])", r"\1", desc)
+    desc = re.sub(r"([a-z])- ([a-z])", r"\1\2", desc)  # re-join words hyphenated at a line break
     desc = re.sub(r"\s+", " ", desc).strip()
     return title, desc
 
@@ -467,7 +468,7 @@ def resolve_location(code, directory, places, cache, memo):
     if not result and entry:
         m = re.search(r"(\d{2,6}(?:-[A-Z])?\s+[^,]+?),\s*(" + "|".join(CITY_ABBR) + r")\b", entry)
         if m:
-            name = re.split(r"\s\d{2,6}\s", " " + entry)[0].strip() or code
+            name = CODE_NAMES.get(code) or re.split(r"\s\d{2,6}\s", " " + entry)[0].strip(" ,") or code
             street = re.sub(r"^(\d+)-[A-Z]\b", r"\1", m.group(1).replace(" .", "."))  # drop suite "-B"
             coords = geocode(f"{street}, {CITY_ABBR[m.group(2)]}, CA", cache)
             if coords:
@@ -476,8 +477,94 @@ def resolve_location(code, directory, places, cache, memo):
     return result
 
 
+# ---------------------------------------------------------------- ActiveNet "browse" links
+
+ACTIVENET = "https://anc.apm.activecommunities.com/haywardrec"
+# guide section -> ActiveNet category name, where the wording differs
+SECTION_TO_ACTIVENET = {
+    "wintercamps": "Seasonal Camps", "springcamps": "Seasonal Camps",
+    "summercamps": "Seasonal Camps", "fallcamps": "Seasonal Camps",
+    "learntoswim": "Aquatics", "dropinprograms": "Aquatics",
+    "accessforall": "Adaptive Recreation", "specialneedsdayprogram": "Adaptive Recreation",
+    "theater": "Theatre",
+    "volunteersinparksvip": "Volunteers",
+    "imagecentral": "Photography",
+}
+# map venue name -> ActiveNet center name, where they differ
+VENUE_TO_ACTIVENET = {
+    "Fairview Park": "Fairview Hills (Fiber Shed)",
+    "Eaab's Fitness & Self Defense": "Eaab's Fitness & Self Defense",
+    "Alameda County Agricultural History Center": "Meek Park",
+    "Meek Estate Park": "Meek Park",
+    "ImageCentral": "District Office",
+}
+# nicer display names for directory entries that only give a generic label
+CODE_NAMES = {"EAABS": "Eaab's Fitness & Self Defense"}
+
+
+def center_key(s):
+    s = norm(html.unescape(s))
+    s = re.sub(r"\b(cmty|comm)\b", "community", s)
+    s = re.sub(r"\bctr\b", "center", s)
+    s = re.sub(r"\band park\b|\bpark and\b", "", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def load_activenet_filters():
+    """ActiveNet's public list of centers and categories -> ({center_key: id}, {squashed category: (id, name)})."""
+    try:
+        data = json.loads(fetch(f"{ACTIVENET}/rest/activities/filters?locale=en-US"))
+        body = data.get("body", data)
+        centers = {center_key(c["desc"]): c["id"] for c in body.get("centers", [])}
+        cats = {squash(html.unescape(c["desc"])): (c["id"], html.unescape(c["desc"])) for c in body.get("categories", [])}
+        return centers, cats
+    except Exception as e:
+        print(f"  ! couldn't load ActiveNet filters ({e}); popups will only get the class search link")
+        return {}, {}
+
+
+def match_center(venue, centers):
+    k = center_key(venue)
+    if k in centers:
+        return centers[k]
+    for ck, cid in centers.items():  # "kenneth c aitken senior and community center" vs "... senior and community center"
+        if ck and (ck.startswith(k) or k.startswith(ck)):
+            return cid
+    words = set(k.split()) - {"center", "community", "the", "of", "and"}
+    best, best_score = None, 0
+    for ck, cid in centers.items():
+        cw = set(ck.split()) - {"center", "community", "the", "of", "and"}
+        if words and cw:
+            score = len(words & cw) / len(words | cw)
+            if score > best_score:
+                best, best_score = cid, score
+    return best if best_score >= 0.5 else None
+
+
+def browse_link(venue, section, centers, cats):
+    """URL + label for 'all <category> classes at <site>' on ActiveNet, or None."""
+    cid = match_center(VENUE_TO_ACTIVENET.get(venue, venue), centers) if centers else None
+    sec = squash(section or "")
+    cat = cats.get(squash(SECTION_TO_ACTIVENET.get(sec, ""))) or cats.get(sec)
+    params = {}
+    if cid:
+        params["center_ids"] = cid
+    if cat:
+        params["activity_category_ids"] = cat[0]
+    if not params:
+        return None, None
+    if cid and cat:
+        label = f"All {cat[1]} at {venue}"
+    elif cid:
+        label = f"All classes at {venue}"
+    else:
+        label = f"All {cat[1]} classes"
+    return f"{ACTIVENET}/activity/search?" + urllib.parse.urlencode(params), label
+
+
 def main():
     today = dt.date.today()
+    an_centers, an_cats = load_activenet_filters()
     places = load_places()
     cache = json.load(open(GEOCODE_CACHE_PATH, encoding="utf-8")) if os.path.exists(GEOCODE_CACHE_PATH) else {}
 
@@ -529,6 +616,7 @@ def main():
         ages_text = ", ".join(OrderedDict.fromkeys(s["ages"] for s in sessions if s["ages"]))
         starts = [s["start"] for s in sessions if s["start"]]
         ends = [s["end"] for s in sessions if s["end"]]
+        browse_url, browse_label = browse_link(g["venue"], cls["section"], an_centers, an_cats)
         desc = cls["description"]
         if len(desc) > 280:
             desc = desc[:277].rsplit(" ", 1)[0] + "…"
@@ -554,6 +642,8 @@ def main():
                     "end": s["end"].isoformat() if s["end"] else None,
                 } for s in sessions],
                 "website": REGISTER_SEARCH + urllib.parse.quote(cls["title"]),
+                "browse_url": browse_url,
+                "browse_label": browse_label,
             },
         })
 

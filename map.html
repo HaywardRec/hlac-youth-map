@@ -603,7 +603,8 @@ function classPopupHtml(p) {
   if (p.sessions.length > MAX) html += `<div class="session">+ ${p.sessions.length - MAX} more session${p.sessions.length - MAX === 1 ? '' : 's'}</div>`;
   html += `</div></div>`;
   if (p.description) html += `<div class="field">${esc(p.description)}</div>`;
-  html += `<a class="site-link" href="${esc(p.website)}" target="_blank" rel="noopener">Find &amp; register on ActiveNet →</a>`;
+  html += `<a class="site-link" href="${esc(p.website)}" target="_blank" rel="noopener">Register for this class →</a>`;
+  if (p.browse_url) html += `<a class="site-link" style="display:block;margin-top:4px" href="${esc(p.browse_url)}" target="_blank" rel="noopener">${esc(p.browse_label)} →</a>`;
   html += `<div class="field" style="color:var(--muted);font-size:11px;margin-top:6px;">${esc(p.guide)} Recreation Guide</div>`;
   html += `</div>`;
   return html;
