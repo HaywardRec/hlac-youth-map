@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HARD Area Facilities Map</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
+<style>
+  :root{
+    --hard: #2f7d4f;
+    --coh:  #2563eb;
+    --husd: #d97706;
+    --biz:  #9333ea;
+    --landmark: #dc2626;
+    --ink:  #1f2937;
+    --muted:#6b7280;
+    --line: #e5e7eb;
+    --bg:   #f7f8f6;
+    --panel:#ffffff;
+    --accent:#2f7d4f;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color:var(--ink);
+    display:flex;
+    height:100vh;
+    overflow:hidden;
+  }
+
+  #sidebar{
+    width:320px;
+    min-width:320px;
+    background:var(--panel);
+    border-right:1px solid var(--line);
+    display:flex;
+    flex-direction:column;
+    overflow-y:auto;
+  }
+  #sidebar-header{
+    padding:18px 18px 12px;
+    border-bottom:1px solid var(--line);
+  }
+  #sidebar-header h1{
+    font-size:17px;
+    margin:0 0 2px;
+    font-weight:700;
+    color:var(--ink);
+  }
+  #sidebar-header p{
+    margin:0;
+    font-size:12.5px;
+    color:var(--muted);
+  }
+
+  #search-wrap{
+    padding:14px 18px;
+    border-bottom:1px solid var(--line);
+  }
+  #search{
+    width:100%;
+    padding:9px 12px;
+    font-size:14px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    outline:none;
+    background:var(--bg);
+  }
+  #search:focus{
+    border-color:var(--accent);
+    background:#fff;
+  }
+  #result-count{
+    font-size:12px;
+    color:var(--muted);
+    margin-top:8px;
+  }
+
+  .layer-block{
+    border-bottom:1px solid var(--line);
+    padding:14px 18px;
+  }
+  .layer-title{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-weight:600;
+    font-size:13.5px;
+    cursor:pointer;
+    user-select:none;
+  }
+  .swatch{
+    width:11px;height:11px;border-radius:50%;flex:none;
+  }
+  .layer-count{
+    margin-left:auto;
+    font-weight:400;
+    color:var(--muted);
+    font-size:12px;
+  }
+  .chevron{
+    font-size:10px;
+    color:var(--muted);
+    transition:transform .15s ease;
+    width:10px;
+  }
+  .layer-block.collapsed .chevron{ transform:rotate(-90deg); }
+  .layer-body{ margin-top:10px; }
+  .layer-block.collapsed .layer-body{ display:none; }
+
+  .filter-group{ margin-top:10px; }
+  .filter-group:first-child{ margin-top:0; }
+  .filter-group-label{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--muted);
+    margin-bottom:6px;
+    font-weight:600;
+  }
+  .chip-list{ display:flex; flex-wrap:wrap; gap:6px; }
+  .chip{
+    font-size:12px;
+    padding:4px 9px;
+    border-radius:999px;
+    border:1px solid var(--line);
+    background:var(--bg);
+    color:var(--ink);
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .chip.active{
+    background:var(--chip-color, var(--accent));
+    border-color:var(--chip-color, var(--accent));
+    color:#fff;
+  }
+  .chip .n{ opacity:.75; margin-left:3px; font-size:10.5px; }
+
+  #reset-btn{
+    margin:14px 18px;
+    padding:9px 12px;
+    font-size:13px;
+    border:1px solid var(--line);
+    background:var(--bg);
+    border-radius:8px;
+    cursor:pointer;
+    color:var(--ink);
+    text-align:center;
+  }
+  #reset-btn:hover{ background:#eef0ec; }
+
+  #map{ flex:1; height:100%; }
+
+  .leaflet-popup-content-wrapper{ border-radius:10px; }
+  .popup{ font-size:13px; line-height:1.45; max-width:260px; }
+  .popup h3{
+    margin:0 0 4px;
+    font-size:14.5px;
+    color:var(--ink);
+  }
+  .popup .src-tag{
+    display:inline-block;
+    font-size:10.5px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    padding:2px 7px;
+    border-radius:5px;
+    color:#fff;
+    margin-bottom:6px;
+  }
+  .popup .addr{ color:var(--muted); margin-bottom:6px; }
+  .popup .field{ margin-top:6px; }
+  .popup .field b{ display:block; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); font-weight:600; margin-bottom:1px; }
+  .popup a.site-link{
+    display:inline-block;
+    margin-top:8px;
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--accent);
+    text-decoration:none;
+  }
+  .popup a.site-link:hover{ text-decoration:underline; }
+
+  .marker-pin{
+    width:28px; height:28px; border-radius:50%;
+    background:#fff;
+    border:2.5px solid var(--pin-color, #333);
+    box-shadow:0 1px 3px rgba(0,0,0,.45);
+    display:flex; align-items:center; justify-content:center;
+    font-size:15px;
+    line-height:1;
+  }
+
+  .legend-control{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:8px;
+    box-shadow:0 1px 4px rgba(0,0,0,.25);
+    font-size:12.5px;
+    color:var(--ink);
+    overflow:hidden;
+  }
+  #legend-toggle{
+    display:block;
+    width:100%;
+    padding:7px 12px;
+    background:var(--panel);
+    border:none;
+    font-size:12.5px;
+    font-weight:600;
+    cursor:pointer;
+    color:var(--ink);
+    text-align:left;
+  }
+  #legend-toggle:hover{ background:var(--bg); }
+  #legend-panel{
+    padding:2px 12px 10px;
+    max-height:50vh;
+    overflow-y:auto;
+  }
+  #legend-panel.hidden{ display:none; }
+  .legend-section{ margin-top:10px; }
+  .legend-section:first-child{ margin-top:6px; }
+  .legend-section-title{
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    font-weight:700;
+    margin-bottom:4px;
+  }
+  .legend-row{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    padding:2px 0;
+    white-space:nowrap;
+  }
+  .legend-glyph{
+    width:20px;height:20px;border-radius:50%;flex:none;
+    background:#fff;
+    border:2px solid;
+    display:flex;align-items:center;justify-content:center;
+    font-size:11px;
+  }
+
+  @media (max-width: 720px){
+    body{ flex-direction:column; }
+    #sidebar{ width:100%; min-width:0; max-height:45vh; }
+    #map{ flex:1; }
+  }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>HARD Area Facilities</h1>
+    <p>Community centers, parks &amp; recreation facilities, city sites, and school district sites across the Hayward Area Recreation &amp; Park District.</p>
+  </div>
+
+  <div id="search-wrap">
+    <input id="search" type="text" placeholder="Search by name or address…" autocomplete="off">
+    <div id="result-count"></div>
+  </div>
+
+  <div id="layers"></div>
+
+  <button id="reset-btn">Reset filters</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="map_data.js"></script>
+<script>
+const LAYER_DEFS = [
+  {
+    key: 'hard',
+    label: 'HARD Facilities',
+    color: 'var(--hard)',
+    colorHex: '#2f7d4f',
+    defaultOn: true,
+    filters: [
+      { field: 'subcategory', label: 'Type' },
+    ],
+  },
+  {
+    key: 'coh',
+    label: 'City of Hayward & Partners',
+    color: 'var(--coh)',
+    colorHex: '#2563eb',
+    defaultOn: true,
+    filters: [
+      { field: 'category', label: 'Category' },
+    ],
+  },
+  {
+    key: 'husd',
+    label: 'HUSD School Sites',
+    color: 'var(--husd)',
+    colorHex: '#d97706',
+    defaultOn: false,
+    filters: [
+      { field: 'category', label: 'Grade Level' },
+      { field: 'subcategory', label: 'Org' },
+    ],
+  },
+  {
+    key: 'business',
+    label: 'Local Businesses',
+    color: 'var(--biz)',
+    colorHex: '#9333ea',
+    defaultOn: true,
+    filters: [
+      { field: 'category', label: 'Type' },
+    ],
+  },
+  {
+    key: 'landmark',
+    label: 'Named Landmarks',
+    color: 'var(--landmark)',
+    colorHex: '#dc2626',
+    defaultOn: true,
+    filters: [
+      { field: 'category', label: 'Type' },
+    ],
+  },
+];
+
+const map = L.map('map', { zoomControl: true }).setView([37.665, -122.083], 12);
+
+// BASEMAPS
+// CARTO's free tiles now require an API key (without one they show an "API key required"
+// watermark / fail). The default below is Esri, which needs no key. If you prefer the CARTO
+// Voyager look, request a free key at https://www.carto.com/basemaps/apikey/ and paste it here.
+const CARTO_API_KEY = '';
+
+const ESRI_ATTR = 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012';
+const basemaps = {
+  'Streets': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, attribution: ESRI_ATTR,
+  }),
+  'Light': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, maxNativeZoom: 16, attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+  }),
+  'Satellite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+  }),
+};
+if (CARTO_API_KEY) {
+  basemaps['Voyager (CARTO)'] = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + encodeURIComponent(CARTO_API_KEY), {
+    maxZoom: 20,
+    subdomains: 'abcd',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  });
+}
+(CARTO_API_KEY ? basemaps['Voyager (CARTO)'] : basemaps['Streets']).addTo(map);
+L.control.layers(basemaps, null, { position: 'topright', collapsed: true }).addTo(map);
+
+// district outline, drawn once as a reference layer (not toggleable, not clustered)
+if (MAP_DATA.boundary) {
+  L.geoJSON(MAP_DATA.boundary, {
+    style: { color: '#374151', weight: 2, opacity: 0.55, fill: true, fillOpacity: 0.03, dashArray: '5,4' },
+    interactive: false,
+  }).addTo(map);
+}
+
+// mini clip-art icons per facility subcategory, shown inside the marker pin
+const ICONS = {
+  hard: {
+    'Center': '🏢',
+    'Center - Senior': '🧓',
+    'Sports': '⚽',
+    'Pool': '🏊',
+    'Museum': '🖼️',
+    'Theater': '🎭',
+    'Garden': '🌷',
+    'Park': '🌳',
+  },
+  coh: {
+    'Other Facility': '🏢',
+    'Youth': '🧒',
+    'Library': '📚',
+    'Sports Park': '⚽',
+    'Mall': '🛍️',
+    'Museum': '🖼️',
+  },
+  husd: {},
+  business: {
+    'Boba / Bubble Tea': '🧋',
+    'Arcade': '🕹️',
+    'Mall / Shopping Center': '🛍️',
+    'Movie Theater': '🎬',
+    'Coffee Shop': '☕',
+    'Bowling Alley': '🎳',
+    'Dance Studio': '💃',
+    'Art / Craft Studio': '🎨',
+    'Cooking Class': '🍳',
+    'Gym / Fitness Center': '💪',
+    'Martial Arts Studio': '🥋',
+    'Board Game Cafe': '🎲',
+    'Game Shop': '♟️',
+  },
+  landmark: {
+    'Regional Park / Lake': '🏞️',
+    'Music Venue': '🎸',
+    'Bowling Alley': '🎳',
+    'Shopping Center': '🛍️',
+    'Hiking Trailhead': '🥾',
+  },
+};
+const DEFAULT_ICON = { hard: '📍', coh: '📍', husd: '🏫', business: '📍', landmark: '📍' };
+
+// CoH's "subcategory" is a program label (e.g. "Youth"), not a facility type, so it
+// mis-icons a few sites (e.g. a swim club tagged "Youth" got the person icon). Override by name.
+const ICON_NAME_OVERRIDES = {
+  'Southgate Swim Club': '🏊',
+  'Matt Jimenez Community Center': '🏢',
+};
+
+function iconFor(layerKey, feature) {
+  const name = feature.properties.name;
+  if (ICON_NAME_OVERRIDES[name]) return ICON_NAME_OVERRIDES[name];
+  const sub = feature.properties.subcategory;
+  return (ICONS[layerKey] && ICONS[layerKey][sub]) || DEFAULT_ICON[layerKey] || '📍';
+}
+
+// state: per layer, set of active filter values per field
+const state = {};
+LAYER_DEFS.forEach(def => {
+  state[def.key] = { on: def.defaultOn, filters: {} };
+  def.filters.forEach(f => { state[def.key].filters[f.field] = new Set(); });
+});
+
+// cluster groups per layer
+const clusterGroups = {};
+const allMarkersByLayer = {}; // key -> [{feature, marker}]
+
+function fieldValues(features, field) {
+  const counts = new Map();
+  features.forEach(f => {
+    const v = f.properties[field] || 'Unspecified';
+    counts.set(v, (counts.get(v) || 0) + 1);
+  });
+  return [...counts.entries()].sort((a,b) => b[1]-a[1]);
+}
+
+const SRC_TAGS = {
+  HARD: { color: '#2f7d4f', label: 'HARD' },
+  CoH: { color: '#2563eb', label: 'City of Hayward' },
+  HUSD: { color: '#d97706', label: 'HUSD' },
+  Business: { color: '#9333ea', label: 'Local Business' },
+  Landmark: { color: '#dc2626', label: 'Landmark' },
+};
+
+function popupHtml(props) {
+  const tag = SRC_TAGS[props.source] || SRC_TAGS.HARD;
+  let html = `<div class="popup">`;
+  html += `<span class="src-tag" style="background:${tag.color}">${tag.label}</span>`;
+  html += `<h3>${props.name || ''}</h3>`;
+  if (props.address) html += `<div class="addr">${props.address}</div>`;
+
+  const meta = [];
+  if (props.subcategory) meta.push(props.subcategory);
+  if (props.category && props.category !== props.subcategory) meta.push(props.category);
+  if (meta.length) html += `<div class="field"><b>Type</b>${meta.join(' · ')}</div>`;
+
+  if (props.amenities) html += `<div class="field"><b>Amenities</b>${props.amenities}</div>`;
+  if (props.reservable_rooms && props.reservable_rooms !== 'None') html += `<div class="field"><b>Reservable Rooms</b>${props.reservable_rooms}</div>`;
+  if (props.reservable_other && props.reservable_other !== 'None') html += `<div class="field"><b>Reservable Spaces</b>${props.reservable_other}</div>`;
+  if (props.primary_operator) html += `<div class="field"><b>Operator</b>${[props.primary_operator, props.secondary_operator].filter(Boolean).join(' / ')}</div>`;
+  if (props.notes) html += `<div class="field"><b>Notes</b>${props.notes}</div>`;
+
+  if (props.rating) {
+    const reviews = props.user_ratings_total ? ` (${props.user_ratings_total} reviews)` : '';
+    html += `<div class="field"><b>Rating</b>${props.rating}★${reviews}${props.price_level ? ' · ' + props.price_level : ''}</div>`;
+  }
+  if (props.source === 'Business') html += `<div class="field" style="color:var(--muted);font-size:11px;">Data: Google</div>`;
+
+  if (props.website) html += `<a class="site-link" href="${props.website}" target="_blank" rel="noopener">View details &amp; reserve →</a>`;
+  html += `</div>`;
+  return html;
+}
+
+function buildLayer(def) {
+  const fc = MAP_DATA[def.key];
+  const group = L.markerClusterGroup({
+    maxClusterRadius: 45,
+    iconCreateFunction: cluster => {
+      const count = cluster.getChildCount();
+      return L.divIcon({
+        html: `<div style="background:${def.colorHex};color:#fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)">${count}</div>`,
+        className: '',
+        iconSize: [34,34],
+      });
+    }
+  });
+
+  const entries = [];
+  fc.features.forEach(feature => {
+    const [lon, lat] = feature.geometry.coordinates;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="marker-pin" style="--pin-color:${def.colorHex}">${iconFor(def.key, feature)}</div>`,
+      iconSize: [28,28],
+      iconAnchor: [14,14],
+    });
+    const marker = L.marker([lat, lon], { icon });
+    marker.bindPopup(popupHtml(feature.properties));
+    entries.push({ feature, marker });
+  });
+
+  clusterGroups[def.key] = group;
+  allMarkersByLayer[def.key] = entries;
+}
+
+LAYER_DEFS.forEach(buildLayer);
+
+// fields searched beyond name/address, so e.g. "tennis" finds facilities with Tennis Courts listed
+const SEARCH_FIELDS = ['name', 'address', 'amenities', 'reservable_rooms', 'reservable_other', 'notes', 'subcategory', 'category'];
+
+function searchHaystack(props) {
+  return SEARCH_FIELDS.map(f => props[f] || '').join(' ').toLowerCase();
+}
+
+function matchesFilters(def, feature) {
+  const f = state[def.key].filters;
+  for (const field in f) {
+    if (f[field].size === 0) continue; // no filter active on this field = allow all
+    const v = feature.properties[field] || 'Unspecified';
+    if (!f[field].has(v)) return false;
+  }
+  return true;
+}
+
+const searchInput = document.getElementById('search');
+
+function currentSearchTerm() {
+  return searchInput.value.trim().toLowerCase();
+}
+
+function refreshMap() {
+  const term = currentSearchTerm();
+  let shown = 0;
+
+  LAYER_DEFS.forEach(def => {
+    const group = clusterGroups[def.key];
+    group.clearLayers();
+    if (!state[def.key].on) {
+      if (map.hasLayer(group)) map.removeLayer(group);
+      return;
+    }
+    const toAdd = [];
+    allMarkersByLayer[def.key].forEach(({feature, marker}) => {
+      if (!matchesFilters(def, feature)) return;
+      if (term && !searchHaystack(feature.properties).includes(term)) return;
+      toAdd.push(marker);
+    });
+    group.addLayers(toAdd);
+    shown += toAdd.length;
+    if (!map.hasLayer(group)) map.addLayer(group);
+  });
+
+  document.getElementById('result-count').textContent = `${shown} facilit${shown===1?'y':'ies'} shown`;
+}
+
+function renderSidebar() {
+  const container = document.getElementById('layers');
+  container.innerHTML = '';
+
+  LAYER_DEFS.forEach(def => {
+    const total = MAP_DATA[def.key].features.length;
+    const block = document.createElement('div');
+    block.className = 'layer-block';
+    block.dataset.key = def.key;
+
+    const title = document.createElement('div');
+    title.className = 'layer-title';
+    title.innerHTML = `
+      <input type="checkbox" ${state[def.key].on ? 'checked' : ''} data-role="toggle">
+      <span class="swatch" style="background:${def.color}"></span>
+      <span>${def.label}</span>
+      <span class="layer-count">${total}</span>
+      <span class="chevron">▾</span>
+    `;
+    block.appendChild(title);
+
+    const body = document.createElement('div');
+    body.className = 'layer-body';
+
+    def.filters.forEach(fdef => {
+      const group = document.createElement('div');
+      group.className = 'filter-group';
+      const label = document.createElement('div');
+      label.className = 'filter-group-label';
+      label.textContent = fdef.label;
+      group.appendChild(label);
+
+      const chipList = document.createElement('div');
+      chipList.className = 'chip-list';
+      const values = fieldValues(MAP_DATA[def.key].features, fdef.field);
+      values.forEach(([val, count]) => {
+        const chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.style.setProperty('--chip-color', def.colorHex);
+        chip.innerHTML = `${val}<span class="n">${count}</span>`;
+        chip.addEventListener('click', () => {
+          const set = state[def.key].filters[fdef.field];
+          if (set.has(val)) { set.delete(val); chip.classList.remove('active'); }
+          else { set.add(val); chip.classList.add('active'); }
+          refreshMap();
+        });
+        chipList.appendChild(chip);
+      });
+      group.appendChild(chipList);
+      body.appendChild(group);
+    });
+
+    block.appendChild(body);
+    container.appendChild(block);
+
+    title.addEventListener('click', (e) => {
+      if (e.target.dataset.role === 'toggle') return;
+      block.classList.toggle('collapsed');
+    });
+    title.querySelector('[data-role="toggle"]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      state[def.key].on = e.target.checked;
+      refreshMap();
+    });
+
+    if (!def.defaultOn) block.classList.add('collapsed');
+  });
+}
+
+searchInput.addEventListener('input', () => {
+  refreshMap();
+  const term = currentSearchTerm();
+  if (!term) return;
+  // fly to first match across active layers
+  for (const def of LAYER_DEFS) {
+    if (!state[def.key].on) continue;
+    const hit = allMarkersByLayer[def.key].find(({feature}) => {
+      if (!matchesFilters(def, feature)) return false;
+      return searchHaystack(feature.properties).includes(term);
+    });
+    if (hit) {
+      clusterGroups[def.key].zoomToShowLayer(hit.marker, () => hit.marker.openPopup());
+      break;
+    }
+  }
+});
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  searchInput.value = '';
+  LAYER_DEFS.forEach(def => {
+    state[def.key].on = def.defaultOn;
+    def.filters.forEach(f => state[def.key].filters[f.field].clear());
+  });
+  renderSidebar();
+  refreshMap();
+  map.setView([37.665, -122.083], 12);
+});
+
+const LegendControl = L.Control.extend({
+  options: { position: 'bottomleft' },
+  onAdd: function () {
+    const div = L.DomUtil.create('div', 'legend-control');
+    const sections = LAYER_DEFS.map(def => {
+      const entries = [...Object.entries(ICONS[def.key] || {}), ['Other', DEFAULT_ICON[def.key]]];
+      const rows = entries.map(([label, glyph]) => `
+        <div class="legend-row">
+          <span class="legend-glyph" style="border-color:${def.colorHex}">${glyph}</span>
+          <span>${label}</span>
+        </div>`).join('');
+      return `<div class="legend-section">
+        <div class="legend-section-title" style="color:${def.colorHex}">${def.label}</div>
+        ${rows}
+      </div>`;
+    }).join('');
+    div.innerHTML = `
+      <button id="legend-toggle" type="button">Legend ▾</button>
+      <div id="legend-panel" class="hidden">${sections}</div>
+    `;
+    L.DomEvent.disableClickPropagation(div);
+    div.querySelector('#legend-toggle').addEventListener('click', () => {
+      div.querySelector('#legend-panel').classList.toggle('hidden');
+    });
+    return div;
+  }
+});
+map.addControl(new LegendControl());
+
+renderSidebar();
+refreshMap();
+</script>
+</body>
+</html>

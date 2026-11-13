@@ -1,0 +1,9 @@
+# Large files (over GitHub's 100 MB limit)
+*.mp4
+*.pptx
+# Source data / requests (not published)
+HLAC requests/
+map_data_fixed.zip
+# Local tooling
+__pycache__/
+.claude/
