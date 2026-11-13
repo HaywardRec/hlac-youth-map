@@ -18,6 +18,7 @@ that layer). Those are geocoded from their street address via Nominatim
 Output: map_data.js (a single `const MAP_DATA = {...}` for the Leaflet page)
 """
 import json
+import os
 import time
 import urllib.parse
 import urllib.request
@@ -28,7 +29,22 @@ import openpyxl
 SHP_DIR = r"C:\Users\Thomas\OneDrive - Hayward Area Recreation and Park District\Documents\ArcGIS\Projects\FacilityRentals"
 XLSX_PATH = r"C:\Users\Thomas\AI\HARD_Facilities.xlsx"
 BOUNDARY_SHP = r"C:\Users\Thomas\OneDrive - Hayward Area Recreation and Park District\Documents\ArcGIS\Projects\Random Shapefiles\HARD_Boundaries.shp"
-OUT_PATH = r"C:\Users\Thomas\OneDrive - Hayward Area Recreation and Park District\Documents\Work\Misc\HLAC - Youth Map\map_data.js"
+OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "map_data.js")
+
+# Park polygons -- used to place spreadsheet parks that aren't in HARD_CommunityCenter.shp
+# (most neighborhood parks). Each polygon is reduced to a point guaranteed inside it.
+PARKS_SHP = r"C:\Users\Thomas\OneDrive - Hayward Area Recreation and Park District\Documents\ArcGIS\Projects\Random Shapefiles\HARD_Parks_9_20_26.shp"
+
+# Excel "Facility" name -> HARD_Parks_9_20_26.shp "Name_1" value, where they differ
+PARK_NAME_OVERRIDES = {
+    "Weekes Community Park": "Weekes Park",
+    "Eden Greenway Dog Park": "Eden Greenway",
+    "Eden Greenway Fitness Court": "Eden Greenway",
+    "Greenbelt Trails": "Greenbelt Riding Hiking Trails",
+    "La Placita Mini Park": "La Placita Park",
+    "Children's Park at Giuliani Plaza": "Childrens Park at Giuliani Plaza",
+    "Tennyson Park Fitness Court": "Tennyson Park",
+}
 
 # Excel "Facility" name -> HARD_CommunityCenter.shp "Name_1" value
 NAME_OVERRIDES = {
@@ -46,7 +62,10 @@ NAME_OVERRIDES = {
 
 # Excel facilities with no usable match anywhere in HARD_CommunityCenter.shp;
 # geocoded from their spreadsheet address instead.
-GEOCODE_FALLBACK = {"Mt. Eden Mansion", "PhotoCentral", "Arroyo Swim Center", "Castro Valley Swim Center"}
+GEOCODE_FALLBACK = {
+    "Mt. Eden Mansion", "PhotoCentral", "Arroyo Swim Center", "Castro Valley Swim Center",
+    "Laurel Park", "Martin Luther King Field",  # not in the parks layer either
+}
 
 # Typos in the source shapefile's Name_1 / SubCategor attributes, corrected on output.
 NAME_1_FIXES = {"Bohannon Athletoc Fields": "Bohannon Athletic Fields"}
@@ -95,6 +114,11 @@ def build_hard_layer(excel_records):
     gdf = gpd.read_file(SHP_DIR + "/HARD_CommunityCenter.shp").to_crs(4326)
     by_shp_name = {row["Name_1"]: row for _, row in gdf.iterrows()}
 
+    parks = gpd.read_file(PARKS_SHP).to_crs(2227)  # project before taking interior points
+    parks["geometry"] = parks.geometry.representative_point()
+    parks = parks.to_crs(4326)
+    park_points = {row["Name_1"].strip(): row.geometry for _, row in parks.iterrows() if row["Name_1"]}
+
     used_shp_names = set()
     features = []
 
@@ -106,6 +130,10 @@ def build_hard_layer(excel_records):
             lat, lon = row.geometry.y, row.geometry.x
             subcategory = SUBCATEGORY_FIXES.get(row["SubCategor"], row["SubCategor"])
             used_shp_names.add(shp_name)
+        elif PARK_NAME_OVERRIDES.get(facility_name, facility_name) in park_points:
+            pt = park_points[PARK_NAME_OVERRIDES.get(facility_name, facility_name)]
+            lat, lon = pt.y, pt.x
+            subcategory = "Sports" if rec.get("Type") == "Athletic Field" else "Park"
         elif facility_name in GEOCODE_FALLBACK:
             addr = rec.get("Address", "")
             print(f"Geocoding: {facility_name} -> {addr}")
@@ -114,7 +142,12 @@ def build_hard_layer(excel_records):
                 print(f"  ! geocode failed for {facility_name}, skipping")
                 continue
             lat, lon = coords
-            subcategory = "Pool" if "Swim" in facility_name else "Center"
+            if "Swim" in facility_name:
+                subcategory = "Pool"
+            elif rec["_sheet"].startswith("Parks"):
+                subcategory = "Sports" if rec.get("Type") == "Athletic Field" else "Park"
+            else:
+                subcategory = "Center"
         else:
             print(f"  ! no shapefile match and not in geocode fallback: {facility_name}")
             continue
