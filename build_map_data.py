@@ -262,23 +262,24 @@ def main():
     husd_features = build_husd_layer()
     boundary = build_boundary()
 
-    # Preserve any existing "business" layer (built separately by build_businesses.py)
-    # rather than wiping it out every time facility data is rebuilt.
-    existing_business = {"type": "FeatureCollection", "features": []}
+    # Keep every layer this script doesn't build ("business" from build_businesses.py,
+    # "landmark" from build_landmarks.py, ...) rather than wiping them out on each rebuild.
+    existing = {}
     try:
         with open(OUT_PATH, "r", encoding="utf-8") as f:
-            existing = json.loads(f.read().removeprefix("const MAP_DATA = ").removesuffix(";\n"))
-        existing_business = existing.get("business", existing_business)
+            existing = json.loads(f.read().removeprefix("const MAP_DATA = ").strip().removesuffix(";"))
     except FileNotFoundError:
         pass
+    existing_business = existing.get("business", {"type": "FeatureCollection", "features": []})
 
-    data = {
+    data = dict(existing)
+    data.update({
         "hard": {"type": "FeatureCollection", "features": hard_features},
         "coh": {"type": "FeatureCollection", "features": coh_features},
         "husd": {"type": "FeatureCollection", "features": husd_features},
         "boundary": boundary,
         "business": existing_business,
-    }
+    })
 
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         f.write("const MAP_DATA = ")

@@ -533,7 +533,8 @@ function popupHtml(props) {
 }
 
 function buildLayer(def) {
-  const fc = MAP_DATA[def.key];
+  // a missing layer shows as empty instead of stopping the whole map from loading
+  const fc = MAP_DATA[def.key] || (MAP_DATA[def.key] = { type: 'FeatureCollection', features: [] });
   const group = L.markerClusterGroup({
     maxClusterRadius: 45,
     iconCreateFunction: cluster => {
