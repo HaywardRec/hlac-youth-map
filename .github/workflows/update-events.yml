@@ -1,6 +1,7 @@
 name: Update events
 
-# Refreshes events.js from the haywardrec.org calendar every morning.
+# Refreshes events.js (haywardrec.org calendar) and community_events.js (Hayward library,
+# City of Hayward, HUSD / San Lorenzo USD / Castro Valley USD calendars) every morning.
 # The GitHub Pages site (and the map embedded on the HARD website) picks up the change automatically.
 on:
   schedule:
@@ -25,15 +26,20 @@ jobs:
           TZ: America/Los_Angeles
         run: python build_events.py
 
+      - name: Build community_events.js (library, City, school districts)
+        env:
+          TZ: America/Los_Angeles
+        run: python build_community_events.py
+
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898783+github-actions[bot]@users.noreply.github.com"
-          git add events.js events_geocode_cache.json
+          git add events.js events_geocode_cache.json community_events.js community_events_geocode_cache.json
           if git diff --cached --quiet; then
             echo "No changes."
           else
-            git commit -m "Update events from HARD calendar"
+            git commit -m "Update events from HARD and community calendars"
             git pull --rebase
             git push
           fi

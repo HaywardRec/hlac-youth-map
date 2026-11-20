@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HARD Area Facilities Map</title>
+<title>Hayward Area Youth Map</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
@@ -57,6 +57,29 @@
     font-size:12.5px;
     color:var(--muted);
   }
+
+  #help-box{
+    margin:12px 18px 0;
+    padding:10px 12px;
+    border-radius:8px;
+    background:#f5f3ff;
+    border:1px solid #ddd6fe;
+    font-size:12.5px;
+    line-height:1.45;
+  }
+  #help-box summary{
+    cursor:pointer;
+    font-weight:700;
+    color:#5b21b6;
+    list-style:none;
+  }
+  #help-box summary::-webkit-details-marker{ display:none; }
+  #help-box summary::after{ content:" ▾"; font-size:10px; }
+  #help-box[open] summary::after{ content:" ▴"; }
+  #help-box ul{ margin:6px 0 0; padding-left:16px; }
+  #help-box li{ margin:3px 0; }
+  #help-box a{ color:#5b21b6; font-weight:600; text-decoration:none; white-space:nowrap; }
+  #help-box .fine{ color:var(--muted); font-size:11.5px; margin-top:6px; }
 
   #search-wrap{
     padding:14px 18px;
@@ -182,6 +205,8 @@
   .popup .session:last-child{ border-bottom:0; }
   .popup .session b{ display:inline; font-size:12px; text-transform:none; letter-spacing:0; color:inherit; }
   .popup .session .course{ color:var(--muted); font-size:11px; }
+  .popup .host{ color:var(--muted); font-size:12px; margin:-2px 0 4px; }
+  .popup a.tel{ color:var(--ink); font-weight:600; text-decoration:none; }
   .popup a.site-link{
     display:inline-block;
     margin-top:8px;
@@ -265,9 +290,21 @@
 
 <div id="sidebar">
   <div id="sidebar-header">
-    <h1>HARD Area Facilities</h1>
-    <p>Community centers, parks &amp; recreation facilities, city sites, and school district sites across the Hayward Area Recreation &amp; Park District.</p>
+    <h1>Hayward Area Youth Map</h1>
+    <p>Things to do for young people: classes, events, youth programs, and places to get support across the Hayward Area Recreation &amp; Park District.</p>
   </div>
+
+  <details id="help-box">
+    <summary>Need to talk to someone now?</summary>
+    <ul>
+      <li><b>988</b> Suicide &amp; Crisis Lifeline: call or text <a href="tel:988">988</a>, 24/7</li>
+      <li>California Youth Crisis Line (ages 12–24): call or text <a href="tel:18008435200">1-800-843-5200</a></li>
+      <li>Crisis Text Line: text <b>HOME</b> to <a href="sms:741741">741741</a></li>
+      <li>Crisis Support Services of Alameda County: <a href="tel:18003092131">1-800-309-2131</a></li>
+      <li>Alameda County Behavioral Health (ACCESS): <a href="tel:18004919099">1-800-491-9099</a></li>
+    </ul>
+    <div class="fine">In an emergency, call <a href="tel:911">911</a>. Free and confidential local help is on the map under <b>Mental Health &amp; Support</b>.</div>
+  </details>
 
   <div id="search-wrap">
     <input id="search" type="text" placeholder="Search by name or address…" autocomplete="off">
@@ -285,15 +322,67 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="map_data.js"></script>
 <script src="events.js"></script>
+<script src="community_events.js"></script>
 <script src="classes.js"></script>
+<script src="resources.js"></script>
 <script>
-// events.js is rebuilt daily from the haywardrec.org calendar by build_events.py
-// (GitHub Action). If it's missing, the map still works with an empty Events layer.
-MAP_DATA.events = (typeof EVENTS_DATA !== 'undefined') ? EVENTS_DATA : { type: 'FeatureCollection', features: [] };
+const EMPTY_FC = { type: 'FeatureCollection', features: [] };
+const TODAY = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in the viewer's time zone
+const monthLabel = d => new Date(d + 'T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+// EVENTS: events.js (HARD calendar, build_events.py) + community_events.js (library, City,
+// school districts; build_community_events.py). Both are rebuilt daily by a GitHub Action.
+// Repeating events carry a list of dates; past dates (and fully past events) are dropped here.
+const HARD_EVENTS = (typeof EVENTS_DATA !== 'undefined') ? EVENTS_DATA : EMPTY_FC;
+const OTHER_EVENTS = (typeof COMMUNITY_EVENTS_DATA !== 'undefined') ? COMMUNITY_EVENTS_DATA : EMPTY_FC;
+MAP_DATA.events = {
+  type: 'FeatureCollection',
+  updated: OTHER_EVENTS.updated || HARD_EVENTS.updated,
+  features: [...HARD_EVENTS.features, ...OTHER_EVENTS.features].map(f => {
+    const p = f.properties;
+    const all = p.occurrences && p.occurrences.length ? p.occurrences : [{ date: p.date, when: p.when, time: p.time }];
+    const occurrences = all.filter(o => !o.date || o.date >= TODAY);
+    if (!occurrences.length) return null;
+    const next = occurrences[0];
+    return { ...f, properties: { ...p, host: p.host || 'HARD', occurrences,
+      date: next.date, when: next.when, time: next.time, month: next.date ? monthLabel(next.date) : p.month } };
+  }).filter(Boolean).sort((a, b) => (a.properties.date || '').localeCompare(b.properties.date || '')),
+};
+
+// MENTAL HEALTH & SUPPORT and YOUTH PROGRAMS: hand-kept list in youth_resources.csv -> build_resources.py
+const RES = (typeof RESOURCES_DATA !== 'undefined') ? RESOURCES_DATA : {};
+MAP_DATA.support = RES.support || EMPTY_FC;
+MAP_DATA.youth = RES.youth || EMPTY_FC;
+
+// PLACES: every facility layer in map_data.js folded into one layer with a simple "Type".
+// (map_data.js keeps its separate hard/coh/husd/landmark/business collections -- the
+// event builders look up venues in them.)
+const PLACE_SOURCE_LAYERS = ['hard', 'coh', 'husd', 'landmark', 'business'];
+const PLACE_KINDS = ['Parks & Trails', 'Community Centers', 'Sports & Pools', 'Museums, Nature & Arts', 'Libraries', 'Schools', 'Shops & Hangouts'];
+function placeKind(layer, p) {
+  const sub = p.subcategory, name = p.name || '';
+  if (layer === 'husd') return 'Schools';
+  if (layer === 'business') return 'Shops & Hangouts';
+  if (layer === 'landmark') return ({ 'Regional Park / Lake': 'Parks & Trails', 'Hiking Trailhead': 'Parks & Trails',
+    'Music Venue': 'Museums, Nature & Arts' })[sub] || 'Shops & Hangouts';
+  if (layer === 'coh') {
+    if (p.category === 'Education') return 'Schools';
+    if (/swim/i.test(name)) return 'Sports & Pools';
+    return ({ Library: 'Libraries', 'Sports Park': 'Sports & Pools', Museum: 'Museums, Nature & Arts', Mall: 'Shops & Hangouts' })[sub] || 'Community Centers';
+  }
+  return ({ Center: 'Community Centers', 'Center - Senior': 'Community Centers', Sports: 'Sports & Pools', Pool: 'Sports & Pools',
+    Museum: 'Museums, Nature & Arts', Theater: 'Museums, Nature & Arts' })[sub] || 'Parks & Trails';
+}
+const PLACE_SKIP = new Set(['District Office']);
+MAP_DATA.places = {
+  type: 'FeatureCollection',
+  features: PLACE_SOURCE_LAYERS.flatMap(layer => ((MAP_DATA[layer] || EMPTY_FC).features)
+    .filter(f => !PLACE_SKIP.has(f.properties.name))
+    .map(f => ({ ...f, properties: { ...f.properties, kind: placeKind(layer, f.properties), _layer: layer } }))),
+};
 
 // classes.js is rebuilt monthly from the current Recreation Guide PDFs by build_classes.py.
 // Between rebuilds, drop sessions (and whole classes) whose dates have already passed.
-const TODAY = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in the viewer's time zone
 MAP_DATA.classes = (() => {
   const src = (typeof CLASSES_DATA !== 'undefined') ? CLASSES_DATA : { features: [] };
   const features = [];
@@ -309,8 +398,6 @@ MAP_DATA.classes = (() => {
   });
   return { type: 'FeatureCollection', guides: src.guides || [], features };
 })();
-// events are dropped the day after they happen, too
-MAP_DATA.events.features = MAP_DATA.events.features.filter(f => !f.properties.date || f.properties.date >= TODAY);
 
 const LAYER_DEFS = [
   {
@@ -334,63 +421,46 @@ const LAYER_DEFS = [
     color: '#db2777',
     colorHex: '#db2777',
     defaultOn: true,
-    note: () => MAP_DATA.events.updated
-      ? `From the HARD calendar · updated ${MAP_DATA.events.updated}`
-      : 'From the HARD calendar',
+    emptyText: 'No upcoming events posted right now.',
+    note: () => 'From HARD, Hayward Public Library, City of Hayward & local school district calendars'
+      + (MAP_DATA.events.updated ? ` · updated ${MAP_DATA.events.updated}` : ''),
     filters: [
       { field: 'age_group', label: 'Ages' },
+      { field: 'host', label: 'Hosted by' },
       { field: 'month', label: 'Month' },
     ],
   },
   {
-    key: 'hard',
-    label: 'HARD Facilities',
-    color: 'var(--hard)',
+    key: 'support',
+    label: 'Mental Health & Support',
+    color: '#7c3aed',
+    colorHex: '#7c3aed',
+    defaultOn: true,
+    note: () => 'Counseling, teen health centers & family resource centers. Most are free. Call ahead to confirm hours.',
+    filters: [
+      { field: 'type', label: 'Type' },
+    ],
+  },
+  {
+    key: 'youth',
+    label: 'Youth Programs & Nonprofits',
+    color: '#ea580c',
+    colorHex: '#ea580c',
+    defaultOn: true,
+    note: () => 'Free or low-cost after-school, leadership & sports programs run by local nonprofits.',
+    filters: [
+      { field: 'type', label: 'Type' },
+    ],
+  },
+  {
+    key: 'places',
+    label: 'Places',
+    color: '#2f7d4f',
     colorHex: '#2f7d4f',
-    defaultOn: true,
-    filters: [
-      { field: 'subcategory', label: 'Type' },
-    ],
-  },
-  {
-    key: 'coh',
-    label: 'City of Hayward & Partners',
-    color: 'var(--coh)',
-    colorHex: '#2563eb',
-    defaultOn: true,
-    filters: [
-      { field: 'category', label: 'Category' },
-    ],
-  },
-  {
-    key: 'husd',
-    label: 'HUSD School Sites',
-    color: 'var(--husd)',
-    colorHex: '#d97706',
     defaultOn: false,
+    note: () => 'Parks, community centers, libraries, schools, landmarks & local hangouts',
     filters: [
-      { field: 'category', label: 'Grade Level' },
-      { field: 'subcategory', label: 'Org' },
-    ],
-  },
-  {
-    key: 'business',
-    label: 'Local Businesses',
-    color: 'var(--biz)',
-    colorHex: '#9333ea',
-    defaultOn: false,
-    filters: [
-      { field: 'category', label: 'Type' },
-    ],
-  },
-  {
-    key: 'landmark',
-    label: 'Named Landmarks',
-    color: 'var(--landmark)',
-    colorHex: '#dc2626',
-    defaultOn: false,
-    filters: [
-      { field: 'category', label: 'Type' },
+      { field: 'kind', label: 'Type' },
     ],
   },
 ];
@@ -459,6 +529,21 @@ const ICONS = {
     'Adults & Seniors': '☕',
     'All Ages': '🎉',
   },
+  support: {
+    'Counseling': '💬',
+    'Youth Center & Clinic': '🩺',
+    'School Health Center': '🩺',
+    'Substance Use & LGBTQIA+ Support': '🤝',
+    'LGBTQIA+ Support': '🏳️‍🌈',
+    'Family Resource Center': '🏠',
+  },
+  youth: {
+    'Tech & Homework Help': '💻',
+    'Leadership': '⭐',
+    'After-School Drop-In': '🎒',
+    'Sports & Leadership': '🥊',
+    'Youth Center': '🏢',
+  },
   hard: {
     'Center': '🏢',
     'Center - Senior': '🧓',
@@ -501,7 +586,13 @@ const ICONS = {
     'Hiking Trailhead': '🥾',
   },
 };
-const DEFAULT_ICON = { classes: '📘', events: '📅', hard: '📍', coh: '📍', husd: '🏫', business: '📍', landmark: '📍' };
+const DEFAULT_ICON = { classes: '📘', events: '📅', support: '💜', youth: '⭐', places: '📍', hard: '📍', coh: '📍', husd: '🏫', business: '📍', landmark: '📍' };
+
+// Places markers keep their original layer's icon; the legend shows one icon per Type instead.
+const PLACES_LEGEND = [
+  ['Parks & Trails', '🌳'], ['Community Centers', '🏢'], ['Sports & Pools', '⚽'], ['Museums, Nature & Arts', '🖼️'],
+  ['Libraries', '📚'], ['Schools', '🏫'], ['Shops & Hangouts', '🧋'],
+];
 
 // CoH's "subcategory" is a program label (e.g. "Youth"), not a facility type, so it
 // mis-icons a few sites (e.g. a swim club tagged "Youth" got the person icon). Override by name.
@@ -513,8 +604,10 @@ const ICON_NAME_OVERRIDES = {
 function iconFor(layerKey, feature) {
   const name = feature.properties.name;
   if (ICON_NAME_OVERRIDES[name]) return ICON_NAME_OVERRIDES[name];
+  if (layerKey === 'places') layerKey = feature.properties._layer;
   const sub = layerKey === 'events' ? feature.properties.age_group
     : layerKey === 'classes' ? feature.properties.interest
+    : (layerKey === 'support' || layerKey === 'youth') ? feature.properties.type
     : feature.properties.subcategory;
   return (ICONS[layerKey] && ICONS[layerKey][sub]) || DEFAULT_ICON[layerKey] || '📍';
 }
@@ -541,6 +634,7 @@ const valuesOf = (props, field) => {
 const FIXED_ORDER = {
   age_groups: ['Young Kids (0–5)', 'Kids (6–12)', 'Teens (13–17)', 'Adults (18+)', 'Seniors (50+)'],
   age_group: ['Young Kids', 'Teens & Youth', 'Adults & Seniors', 'All Ages'],
+  kind: PLACE_KINDS,
 };
 const monthOrder = label => label === 'In progress' ? -1 : (Date.parse('1 ' + label) || 9e15);
 
@@ -556,6 +650,8 @@ function fieldValues(features, field) {
 const SRC_TAGS = {
   Class: { color: '#0d9488', label: 'HARD Class' },
   Event: { color: '#db2777', label: 'Event' },
+  Support: { color: '#7c3aed', label: 'Mental Health & Support' },
+  Youth: { color: '#ea580c', label: 'Youth Program' },
   HARD: { color: '#2f7d4f', label: 'HARD' },
   CoH: { color: '#2563eb', label: 'City of Hayward' },
   HUSD: { color: '#d97706', label: 'HUSD' },
@@ -566,15 +662,43 @@ const SRC_TAGS = {
 // event text is scraped from the calendar, so escape it before it goes into the popup
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+const HOST_NAMES = { HARD: 'Hayward Area Recreation & Park District (HARD)' };
+
 function eventPopupHtml(raw) {
-  const props = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, esc(v)]));
+  const MAX = 6;
+  const occ = raw.occurrences || [];
+  const props = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Array.isArray(v) ? v : esc(v)]));
   let html = `<div class="popup">`;
   html += `<span class="src-tag" style="background:${SRC_TAGS.Event.color}">Event · ${props.age_group}</span>`;
   html += `<h3>${props.name}</h3>`;
-  html += `<div class="field"><b>When</b>${props.when}${props.time ? ' · ' + props.time : ''}</div>`;
+  html += `<div class="host">Hosted by ${esc(HOST_NAMES[raw.host] || raw.host)}</div>`;
+  if (occ.length > 1) {
+    html += `<div class="field"><b>Upcoming dates</b><div class="sessions">`;
+    occ.slice(0, MAX).forEach(o => { html += `<div class="session"><b>${esc(o.when)}</b>${o.time ? ' · ' + esc(o.time) : ''}</div>`; });
+    if (occ.length > MAX) html += `<div class="session">+ ${occ.length - MAX} more date${occ.length - MAX === 1 ? '' : 's'}</div>`;
+    html += `</div></div>`;
+  } else {
+    html += `<div class="field"><b>When</b>${props.when}${props.time ? ' · ' + props.time : ''}</div>`;
+  }
   html += `<div class="field"><b>Where</b>${props.venue}${props.address ? `<br><span class="addr">${props.address}</span>` : ''}</div>`;
   if (props.description) html += `<div class="field">${props.description}</div>`;
-  html += `<a class="site-link" href="${props.website}" target="_blank" rel="noopener">Event details &amp; sign up →</a>`;
+  html += `<a class="site-link" href="${props.website}" target="_blank" rel="noopener">${raw.host === 'HARD' ? 'Event details &amp; sign up' : 'Event details'} →</a>`;
+  html += `</div>`;
+  return html;
+}
+
+function resourcePopupHtml(p) {
+  const tag = SRC_TAGS[p.source];
+  let html = `<div class="popup">`;
+  html += `<span class="src-tag" style="background:${tag.color}">${esc(p.type || tag.label)}</span>`;
+  html += `<h3>${esc(p.name)}</h3>`;
+  if (p.address) html += `<div class="addr">${esc(p.address)}</div>`;
+  if (p.description) html += `<div class="field">${esc(p.description)}</div>`;
+  if (p.ages) html += `<div class="field"><b>Ages</b>${esc(p.ages)}</div>`;
+  if (p.cost) html += `<div class="field"><b>Cost</b>${esc(p.cost)}</div>`;
+  if (p.phone) html += `<div class="field"><b>Phone</b><a class="tel" href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">${esc(p.phone)}</a></div>`;
+  if (p.website) html += `<a class="site-link" href="${esc(p.website)}" target="_blank" rel="noopener">More info →</a>`;
+  if (p.address) html += `<a class="site-link" style="display:block;margin-top:4px" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(p.address)}" target="_blank" rel="noopener">Directions →</a>`;
   html += `</div>`;
   return html;
 }
@@ -613,6 +737,7 @@ function classPopupHtml(p) {
 function popupHtml(props) {
   if (props.source === 'Class') return classPopupHtml(props);
   if (props.source === 'Event') return eventPopupHtml(props);
+  if (props.source === 'Support' || props.source === 'Youth') return resourcePopupHtml(props);
   const tag = SRC_TAGS[props.source] || SRC_TAGS.HARD;
   let html = `<div class="popup">`;
   html += `<span class="src-tag" style="background:${tag.color}">${tag.label}</span>`;
@@ -677,7 +802,7 @@ function buildLayer(def) {
 LAYER_DEFS.forEach(buildLayer);
 
 // fields searched beyond name/address, so e.g. "tennis" finds facilities with Tennis Courts listed
-const SEARCH_FIELDS = ['name', 'address', 'venue', 'description', 'age_group', 'interest', 'section', 'amenities', 'reservable_rooms', 'reservable_other', 'notes', 'subcategory', 'category'];
+const SEARCH_FIELDS = ['name', 'address', 'venue', 'description', 'age_group', 'host', 'interest', 'section', 'type', 'kind', 'ages', 'amenities', 'reservable_rooms', 'reservable_other', 'notes', 'subcategory', 'category'];
 
 function searchHaystack(props) {
   return SEARCH_FIELDS.map(f => props[f] || '').join(' ').toLowerCase();
@@ -759,7 +884,7 @@ function renderSidebar() {
       const empty = document.createElement('div');
       empty.className = 'filter-group-label';
       empty.style.textTransform = 'none';
-      empty.textContent = 'No upcoming events posted right now.';
+      empty.textContent = def.emptyText || 'Nothing to show right now.';
       body.appendChild(empty);
     }
 
@@ -843,7 +968,8 @@ const LegendControl = L.Control.extend({
   onAdd: function () {
     const div = L.DomUtil.create('div', 'legend-control');
     const sections = LAYER_DEFS.map(def => {
-      const entries = [...Object.entries(ICONS[def.key] || {}), ['Other', DEFAULT_ICON[def.key]]];
+      const entries = def.key === 'places' ? PLACES_LEGEND
+        : [...Object.entries(ICONS[def.key] || {}), ['Other', DEFAULT_ICON[def.key]]];
       const rows = entries.map(([label, glyph]) => `
         <div class="legend-row">
           <span class="legend-glyph" style="border-color:${def.colorHex}">${glyph}</span>

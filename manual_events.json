@@ -1,0 +1,16 @@
+{
+  "_note": "City of Hayward signature events. The City's calendar has no feed for these, so add each year's dates here by hand (from hayward-ca.gov/community-events). Past dates drop off the map automatically. Fields: name, host, date (YYYY-MM-DD), time, venue, address, description, website, age_group (optional: Young Kids / Teens & Youth / Adults & Seniors / All Ages).",
+  "events": [
+    {
+      "name": "Light Up the Season",
+      "host": "City of Hayward",
+      "date": "2026-12-04",
+      "time": "4:30p - 7:30p",
+      "venue": "City Hall Rotunda & Plaza",
+      "address": "777 B St, Hayward, CA",
+      "description": "Hayward's annual tree lighting and winter festival: student performers, free meals, holiday art exhibit, and games from HARD.",
+      "website": "https://www.hayward-ca.gov/community-events/light-up-the-season",
+      "age_group": "All Ages"
+    }
+  ]
+}
